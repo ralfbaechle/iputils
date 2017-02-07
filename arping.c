@@ -47,6 +47,17 @@ struct sysfs_devattr_values;
 #include <locale.h>
 #endif
 
+#ifndef ARPHRD_AX25
+#define ARPHRD_AX25		3
+#endif
+#ifndef ARPHRD_NETROM
+#define ARPHRD_NETROM		0
+#endif
+#ifndef AX25_P_IP
+#define AX25_P_IP		0xcc	/* ARPA Internet Protocol     */
+#endif
+
+
 #include "SNAPSHOT.h"
 
 static void usage(void) __attribute__((noreturn));
@@ -275,7 +286,16 @@ int send_pack(int s, struct in_addr src, struct in_addr dst,
 	ah->ar_hrd = htons(ME->sll_hatype);
 	if (ah->ar_hrd == htons(ARPHRD_FDDI))
 		ah->ar_hrd = htons(ARPHRD_ETHER);
-	ah->ar_pro = htons(ETH_P_IP);
+
+	/*
+	 * Exceptions everywhere. AX.25 uses the AX.25 PID value not the
+	 * DIX code for the protocol. Make these device structure fields.
+	 */
+	if (ah->ar_hrd == htons(ARPHRD_AX25) ||
+	    ah->ar_hrd == htons(ARPHRD_NETROM))
+		ah->ar_pro = htons(AX25_P_IP);
+	else
+		ah->ar_pro = htons(ETH_P_IP);
 	ah->ar_hln = ME->sll_halen;
 	ah->ar_pln = 4;
 	ah->ar_op  = advert ? htons(ARPOP_REPLY) : htons(ARPOP_REQUEST);
@@ -417,8 +437,15 @@ int recv_pack(unsigned char *buf, int len, struct sockaddr_ll *FROM)
 	    (FROM->sll_hatype != ARPHRD_FDDI || ah->ar_hrd != htons(ARPHRD_ETHER)))
 		return 0;
 
-	/* Protocol must be IP. */
-	if (ah->ar_pro != htons(ETH_P_IP))
+	/*
+	 * Protocol must be IP - but exceptions everywhere. AX.25 and NETROM
+	 * use the AX.25 PID value not the DIX code for the protocol.
+	 */
+	if (ah->ar_hrd == htons(ARPHRD_AX25) ||
+	    ah->ar_hrd == htons(ARPHRD_NETROM)) {
+		if (ah->ar_pro != htons(AX25_P_IP))
+			return 0;
+	} else if (ah->ar_pro != htons(ETH_P_IP))
 		return 0;
 	if (ah->ar_pln != 4)
 		return 0;
